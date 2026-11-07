@@ -7,3 +7,6 @@ local.properties
 .cxx/
 .kotlin/
 out/
+.venv/
+__pycache__/
+keystore.properties

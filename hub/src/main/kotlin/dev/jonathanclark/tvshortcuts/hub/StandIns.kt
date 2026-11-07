@@ -22,15 +22,28 @@ enum class StandInState {
     SYSTEM_APP,
 }
 
-class StandInStatus(val state: StandInState, val appLabel: String?, val installedForUser: Boolean)
+class StandInStatus(
+    val state: StandInState,
+    val appLabel: String?,
+    val installedForUser: Boolean,
+    /** The installed stand-in's version (0 if it predates versioning); null unless this is a stand-in. */
+    val version: Int? = null,
+) {
+    /** True when this hub needs a newer stand-in than the one installed. */
+    val needsUpdate: Boolean
+        get() = state == StandInState.STAND_IN && (version ?: 0) < BuildConfig.STANDIN_VERSION
+}
 
 object StandIns {
+    /** Manifest meta-data every stand-in carries; its value comes from standinVersion in gradle.properties. */
+    const val VERSION_KEY = "dev.jonathanclark.tvshortcuts.STANDIN_VERSION"
+
     @Suppress("DEPRECATION")
     fun check(context: Context, pkg: String): StandInStatus {
         val pm = context.packageManager
         val info = try {
             // MATCH_UNINSTALLED_PACKAGES so system apps removed for this user still show up.
-            pm.getApplicationInfo(pkg, PackageManager.MATCH_UNINSTALLED_PACKAGES)
+            pm.getApplicationInfo(pkg, PackageManager.MATCH_UNINSTALLED_PACKAGES or PackageManager.GET_META_DATA)
         } catch (e: PackageManager.NameNotFoundException) {
             return StandInStatus(StandInState.NOT_INSTALLED, null, false)
         }
@@ -42,6 +55,11 @@ object StandIns {
             pm.checkSignatures(context.packageName, pkg) == PackageManager.SIGNATURE_MATCH -> StandInState.STAND_IN
             else -> StandInState.REAL_APP
         }
-        return StandInStatus(state, label, installed)
+        val version = if (state == StandInState.STAND_IN) {
+            info.metaData?.get(VERSION_KEY)?.toString()?.toIntOrNull() ?: 0
+        } else {
+            null
+        }
+        return StandInStatus(state, label, installed, version)
     }
 }

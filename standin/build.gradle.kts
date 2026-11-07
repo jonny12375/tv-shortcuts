@@ -5,6 +5,11 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val keystoreProperties = rootProject.extra["keystoreProperties"] as java.util.Properties
+val hasKeystore = keystoreProperties.containsKey("storeFile")
+val standinVersion = (project.findProperty("standinVersion") as String).toInt()
+if (!hasKeystore) logger.warn("keystore.properties not found: release builds of ${project.name} are signed with the DEBUG key")
+
 // One tiny APK per remote-control button, generated from config/buttons.json.
 // Each flavor claims the package name Sony's firmware expects and forwards the
 // key press to whatever app is configured in the hub.
@@ -18,10 +23,28 @@ android {
     defaultConfig {
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = standinVersion
+        versionName = standinVersion.toString()
+        manifestPlaceholders["standinVersion"] = standinVersion
     }
 
+    // Release builds use keystore.properties; without it they fall back to the debug key so that
+    // assembleRelease still works for contributors (those builds are not real releases).
+    signingConfigs {
+        create("release") {
+            if (hasKeystore) {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName(if (hasKeystore) "release" else "debug")
+        }
+    }
     buildFeatures {
         buildConfig = true
     }

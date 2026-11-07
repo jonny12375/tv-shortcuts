@@ -66,9 +66,13 @@ fun HubScreen(
     onUninstall: (List<String>) -> Unit,
     onChoose: (Targets.Button, String?) -> Unit,
     onOpenLink: (String) -> Unit,
+    /** A button id (from pressing an unconfigured remote button) whose app picker should open. */
+    openPickerFor: String?,
+    onPickerHandled: () -> Unit,
 ) {
     var tabName by rememberSaveable { mutableStateOf(Category.SHORTCUTS.name) }
     val tab = Category.valueOf(tabName)
+    var showAbout by remember { mutableStateOf(false) }
     var showAddHelp by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf<ButtonItem?>(null) }
     var picking by remember { mutableStateOf<ButtonItem?>(null) }
@@ -80,9 +84,23 @@ fun HubScreen(
     val byCategory = items.orEmpty().groupBy { it.category }
     val shortcuts = byCategory[Category.SHORTCUTS].orEmpty()
 
+    // Pressing an unconfigured remote button opens the hub on that button's picker.
+    LaunchedEffect(openPickerFor, items) {
+        val id = openPickerFor
+        if (id != null && items != null) {
+            showAbout = false
+            menu = null
+            explain = null
+            items.firstOrNull { it.button.id == id }?.let { picking = it }
+            onPickerHandled()
+        }
+    }
+
     val picked = picking
     run {
-        if (picked != null) {
+        if (showAbout) {
+            AboutScreen(items = items, onClose = { showAbout = false }, onOpenLink = onOpenLink)
+        } else if (picked != null) {
             PickerScreen(
                 item = picked,
                 onPick = { pkg -> onChoose(picked.button, pkg); picking = null },
@@ -102,6 +120,7 @@ fun HubScreen(
                     // tab. Otherwise the geometrically nearest chip wins, and since tabs follow
                     // focus, that silently switches category.
                     modifier = Modifier
+                        .fillMaxWidth()
                         .focusProperties { enter = { tabFocus.getValue(tab) } }
                         .focusGroup(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -114,6 +133,9 @@ fun HubScreen(
                             modifier = Modifier.focusRequester(tabFocus.getValue(c)),
                         )
                     }
+                    Spacer(Modifier.weight(1f))
+                    // Not a category: focusing it doesn't change the selected tab.
+                    AboutChip(onClick = { showAbout = true })
                 }
                 Spacer(Modifier.height(16.dp))
 
@@ -227,6 +249,18 @@ private fun TabChip(text: String, selected: Boolean, onFocus: () -> Unit, modifi
 }
 
 @Composable
+private fun AboutChip(onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(24.dp)),
+        colors = surfaceColors(Color.Transparent),
+        border = focusBorder(24.dp),
+    ) {
+        Text("About", fontSize = 20.sp, color = Palette.Muted, modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp))
+    }
+}
+
+@Composable
 private fun ShortcutsTab(shortcuts: List<ButtonItem>, loaded: Boolean, onOpen: (ButtonItem) -> Unit, onRemoveAll: () -> Unit) {
     if (loaded && shortcuts.isEmpty()) {
         Text(
@@ -259,7 +293,7 @@ private fun ShortcutsTab(shortcuts: List<ButtonItem>, loaded: Boolean, onOpen: (
     }
 }
 
-private const val PROJECT_URL = "https://github.com/jonny12375/tv-shortcuts"
+const val PROJECT_URL = "https://github.com/jonny12375/tv-shortcuts"
 
 @Composable
 private fun InfoList(

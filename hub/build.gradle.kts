@@ -6,6 +6,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val keystoreProperties = rootProject.extra["keystoreProperties"] as java.util.Properties
+val hasKeystore = keystoreProperties.containsKey("storeFile")
+val standinVersion = (project.findProperty("standinVersion") as String).toInt()
+if (!hasKeystore) logger.warn("keystore.properties not found: release builds of ${project.name} are signed with the DEBUG key")
+
 @Suppress("UNCHECKED_CAST")
 val buttons = JsonSlurper().parse(rootProject.file("config/buttons.json")) as List<Map<String, Any?>>
 
@@ -19,10 +24,29 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+        buildConfigField("int", "STANDIN_VERSION", "$standinVersion")
     }
 
+    // Release builds use keystore.properties; without it they fall back to the debug key so that
+    // assembleRelease still works for contributors (those builds are not real releases).
+    signingConfigs {
+        create("release") {
+            if (hasKeystore) {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName(if (hasKeystore) "release" else "debug")
+        }
+    }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
@@ -33,11 +57,42 @@ android {
         jvmTarget = "17"
     }
 
-    sourceSets.getByName("main").assets.apply {
-        // The hub reads the same button list the stand-in flavors are generated from...
-        srcDir(rootProject.file("config"))
-        // ...and carries the stand-in APKs so it can install them itself.
-        srcDir(layout.buildDirectory.dir("generated/standins"))
+    // The hub reads the same button list the stand-in flavors are generated from.
+    sourceSets.getByName("main").assets.srcDir(rootProject.file("config"))
+}
+
+// The hub also carries the stand-in APKs so it can install them itself. Each build variant
+// bundles the stand-ins of the same build type, so a release hub holds release-signed ones.
+abstract class BundleStandIns : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val apks: ConfigurableFileCollection
+
+    @get:Input
+    abstract val buildType: Property<String>
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun bundle() {
+        val out = outputDir.get().asFile.resolve("standins").apply { deleteRecursively(); mkdirs() }
+        apks.files.forEach { apk ->
+            val id = apk.name.removePrefix("standin-").removeSuffix("-${buildType.get()}.apk")
+            apk.copyTo(out.resolve("$id.apk"), overwrite = true)
+        }
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        val type = variant.name
+        val bundle = tasks.register<BundleStandIns>("bundleStandIns${type.replaceFirstChar { it.uppercase() }}") {
+            dependsOn(":standin:assemble${type.replaceFirstChar { it.uppercase() }}")
+            apks.from(rootProject.fileTree("standin/build/outputs/apk") { include("*/$type/*.apk") })
+            buildType.set(type)
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(bundle, BundleStandIns::outputDir)
     }
 }
 
@@ -49,23 +104,6 @@ dependencies {
     implementation("androidx.tv:tv-material:1.0.0")
     implementation("com.google.zxing:core:3.5.3")
     implementation("androidx.activity:activity-compose:1.9.3")
-}
-
-// Copy every built stand-in APK to assets/standins/<buttonId>.apk.
-val bundleStandIns = tasks.register<Copy>("bundleStandIns") {
-    dependsOn(":standin:assembleDebug")
-    from(rootProject.layout.projectDirectory.dir("standin/build/outputs/apk")) {
-        include("*/debug/*.apk")
-        eachFile {
-            val id = name.removePrefix("standin-").removeSuffix("-debug.apk")
-            path = "standins/$id.apk"
-        }
-        includeEmptyDirs = false
-    }
-    into(layout.buildDirectory.dir("generated/standins"))
-}
-tasks.configureEach {
-    if (name.startsWith("merge") && name.endsWith("Assets")) dependsOn(bundleStandIns)
 }
 
 // Android 11+ package visibility: the hub must declare every package name it inspects.

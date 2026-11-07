@@ -9,7 +9,7 @@ import android.widget.Toast
 
 /**
  * Invisible trampoline: asks the hub which app this button should open,
- * starts it, and finishes. If nothing is configured, opens the hub instead.
+ * starts it, and finishes. If nothing is configured, opens the hub on this button's picker.
  */
 class LaunchActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -33,12 +33,14 @@ class LaunchActivity : Activity() {
                 ?: packageManager.getLaunchIntentForPackage(target)
         }
         if (intent == null) {
+            // Nothing usable is set for this button (or the chosen app is gone): open the hub
+            // straight at this button's app picker.
             intent = packageManager.getLeanbackLaunchIntentForPackage(HUB_PACKAGE)
             if (intent == null) {
                 Toast.makeText(this, "TV Shortcuts hub app is not installed", Toast.LENGTH_LONG).show()
                 return
             }
-            Toast.makeText(this, "No app set for this button", Toast.LENGTH_SHORT).show()
+            intent.putExtra(EXTRA_BUTTON_ID, BuildConfig.BUTTON_ID)
         }
         startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
@@ -54,6 +56,9 @@ class LaunchActivity : Activity() {
     private companion object {
         const val TAG = "TvShortcuts"
         const val HUB_PACKAGE = "dev.jonathanclark.tvshortcuts.hub"
+
+        /** Read by the hub's MainActivity; keep the two in sync. */
+        const val EXTRA_BUTTON_ID = "dev.jonathanclark.tvshortcuts.EXTRA_BUTTON_ID"
         val TARGETS: Uri = Uri.parse("content://dev.jonathanclark.tvshortcuts.hub.targets/")
     }
 }

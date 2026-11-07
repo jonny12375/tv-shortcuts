@@ -23,6 +23,11 @@
         android:icon="@drawable/ic_launcher"
         android:label="@string/app_name">
 
+        <!-- Bumped (in gradle.properties) when the hub must require newer stand-ins. -->
+        <meta-data
+            android:name="dev.jonathanclark.tvshortcuts.STANDIN_VERSION"
+            android:value="${standinVersion}" />
+
         <!-- Sony -> Google launcher asks for this package's leanback launch intent. -->
         <activity
             android:name=".LaunchActivity"

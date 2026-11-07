@@ -23,6 +23,9 @@ class MainActivity : ComponentActivity() {
     /** Bumped whenever something may have changed (resume, install result, uninstall dialog closed). */
     private var refresh by mutableIntStateOf(0)
     private var installPermissionHelp by mutableStateOf(false)
+
+    /** Set when a stand-in sent us here because its remote button has no app chosen yet. */
+    private var pickerRequest by mutableStateOf<String?>(null)
     private val uninstallQueue = ArrayDeque<String>()
 
     private val deleteLauncher =
@@ -30,6 +33,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Only on a fresh start: after a configuration change the old intent is still attached.
+        if (savedInstanceState == null) pickerRequest = intent.getStringExtra(EXTRA_BUTTON_ID)
 
         lifecycleScope.launch {
             InstallEvents.results.collect {
@@ -55,9 +60,18 @@ class MainActivity : ComponentActivity() {
                         refresh++
                     },
                     onOpenLink = ::openLink,
+                    openPickerFor = pickerRequest,
+                    onPickerHandled = { pickerRequest = null },
                 )
             }
         }
+    }
+
+    /** The hub is singleTask, so a remote-button press while it's open arrives here. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.getStringExtra(EXTRA_BUTTON_ID)?.let { pickerRequest = it }
     }
 
     override fun onResume() {
@@ -108,5 +122,10 @@ class MainActivity : ComponentActivity() {
         refresh++
         val pkg = uninstallQueue.removeFirstOrNull() ?: return
         deleteLauncher.launch(Intent(Intent.ACTION_DELETE, Uri.parse("package:$pkg")))
+    }
+
+    companion object {
+        /** Sent by the stand-ins; keep in sync with LaunchActivity in :standin. */
+        const val EXTRA_BUTTON_ID = "dev.jonathanclark.tvshortcuts.EXTRA_BUTTON_ID"
     }
 }

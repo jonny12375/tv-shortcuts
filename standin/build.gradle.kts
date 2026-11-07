@@ -1,11 +1,16 @@
+import groovy.json.JsonSlurper
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
 
-// One tiny APK per remote-control button. Each flavor pretends to be the app
-// Sony's firmware expects to find, and forwards the key press to whatever app
-// is configured in the hub.
+// One tiny APK per remote-control button, generated from config/buttons.json.
+// Each flavor claims the package name Sony's firmware expects and forwards the
+// key press to whatever app is configured in the hub.
+@Suppress("UNCHECKED_CAST")
+val buttons = JsonSlurper().parse(rootProject.file("config/buttons.json")) as List<Map<String, Any?>>
+
 android {
     namespace = "dev.jonathanclark.tvshortcuts.standin"
     compileSdk = 34
@@ -31,28 +36,41 @@ android {
 
     flavorDimensions += "button"
     productFlavors {
-        // scancode 491
-        create("disney") {
-            dimension = "button"
-            applicationId = "com.disney.disneyplus"
-            buildConfigField("String", "BUTTON_ID", "\"disney\"")
-            resValue("string", "app_name", "Disney+ shortcut")
-        }
-        // scancode 507
-        create("crunchyroll") {
-            dimension = "button"
-            applicationId = "com.crunchyroll.crunchyroid"
-            buildConfigField("String", "BUTTON_ID", "\"crunchyroll\"")
-            resValue("string", "app_name", "Crunchyroll shortcut")
-        }
-        // scancode 490
-        create("prime") {
-            dimension = "button"
-            applicationId = "com.amazon.amazonvideo.livingroom"
-            buildConfigField("String", "BUTTON_ID", "\"prime\"")
-            // Must exceed the preinstalled system app (606024041) or Android rejects it as a downgrade.
-            versionCode = 2000000000
-            resValue("string", "app_name", "Prime Video shortcut")
+        for (b in buttons) {
+            create(b["id"] as String) {
+                dimension = "button"
+                applicationId = b["package"] as String
+                buildConfigField("String", "BUTTON_ID", "\"${b["id"]}\"")
+                resValue("string", "app_name", "${b["label"]} shortcut")
+                // System apps ship with a high versionCode; match it so the install is
+                // refused for the real reason (signature) instead of "downgrade".
+                (b["versionCode"] as? Number)?.let { versionCode = it.toInt() }
+            }
         }
     }
+}
+
+// Some buttons launch their app with an implicit intent carrying a specific action
+// (e.g. Netflix). Declare those actions on LaunchActivity via a generated manifest.
+for (b in buttons) {
+    @Suppress("UNCHECKED_CAST")
+    val actions = (b["actions"] as? List<String>) ?: continue
+    val manifest = layout.buildDirectory.file("generated/standin-manifests/${b["id"]}/AndroidManifest.xml").get().asFile
+    manifest.parentFile.mkdirs()
+    manifest.writeText(
+        buildString {
+            appendLine("""<?xml version="1.0" encoding="utf-8"?>""")
+            appendLine("""<manifest xmlns:android="http://schemas.android.com/apk/res/android">""")
+            appendLine("""    <application>""")
+            appendLine("""        <activity android:name="dev.jonathanclark.tvshortcuts.standin.LaunchActivity" android:exported="true">""")
+            appendLine("""            <intent-filter>""")
+            actions.forEach { appendLine("""                <action android:name="$it" />""") }
+            appendLine("""                <category android:name="android.intent.category.DEFAULT" />""")
+            appendLine("""            </intent-filter>""")
+            appendLine("""        </activity>""")
+            appendLine("""    </application>""")
+            appendLine("""</manifest>""")
+        }
+    )
+    android.sourceSets.getByName(b["id"] as String).manifest.srcFile(manifest)
 }

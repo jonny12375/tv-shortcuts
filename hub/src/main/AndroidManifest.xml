@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
-    <!-- We only need to see launchable apps, not every package. -->
+    <!-- Launchable apps for the picker; the specific packages the buttons use are declared by a manifest generated from config/buttons.json. -->
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
@@ -19,9 +22,9 @@
     <application
         android:allowBackup="false"
         android:banner="@drawable/banner"
-        android:icon="@drawable/banner"
+        android:icon="@drawable/ic_launcher"
         android:label="@string/app_name"
-        android:theme="@android:style/Theme.DeviceDefault">
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 
         <activity
             android:name=".MainActivity"
@@ -32,6 +35,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Receives the result of installing a stand-in. -->
+        <receiver
+            android:name=".InstallResultReceiver"
+            android:exported="false" />
 
         <!-- The stand-in apps query this to find out what to launch. -->
         <provider

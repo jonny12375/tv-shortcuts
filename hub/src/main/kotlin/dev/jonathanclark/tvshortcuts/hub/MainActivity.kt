@@ -1,84 +1,112 @@
 package dev.jonathanclark.tvshortcuts.hub
 
-import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
-import android.widget.ArrayAdapter
-import android.widget.ListView
+import android.provider.Settings
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-/** Two D-pad friendly lists: pick a button, then pick the app it should open. */
-class MainActivity : Activity() {
-    /** [pkg] == null means "do nothing". */
-    private class AppChoice(val label: String, val pkg: String?) {
-        override fun toString() = label
-    }
+class MainActivity : ComponentActivity() {
+    /** Bumped whenever something may have changed (resume, install result, uninstall dialog closed). */
+    private var refresh by mutableIntStateOf(0)
+    private var installPermissionHelp by mutableStateOf(false)
+    private val uninstallQueue = ArrayDeque<String>()
 
-    private lateinit var list: ListView
-    private var editing: Targets.Button? = null // null while showing the button list
+    private val deleteLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { nextUninstall() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        list = ListView(this).apply { setPadding(96, 48, 96, 48) }
-        setContentView(list)
-        showButtons()
-    }
 
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        if (editing != null) showButtons() else super.onBackPressed()
-    }
-
-    private fun appLabel(pkg: String?): String {
-        if (pkg == null) return "not set"
-        return try {
-            "${packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0))}  ($pkg)"
-        } catch (e: PackageManager.NameNotFoundException) {
-            "$pkg  (not installed)"
-        }
-    }
-
-    private fun isInstalled(pkg: String) = try {
-        packageManager.getPackageInfo(pkg, 0)
-        true
-    } catch (e: PackageManager.NameNotFoundException) {
-        false
-    }
-
-    private fun showButtons() {
-        editing = null
-        title = "TV Shortcuts"
-        val rows = Targets.buttons.map { b ->
-            val note = if (isInstalled(b.standInPackage)) "" else "   [stand-in APK not installed]"
-            "${b.label}\n  opens: ${appLabel(Targets.get(this, b.id))}$note"
-        }
-        list.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, rows)
-        list.setOnItemClickListener { _, _, position, _ -> showApps(Targets.buttons[position]) }
-        list.requestFocus()
-    }
-
-    private fun showApps(button: Targets.Button) {
-        editing = button
-        title = button.label
-
-        // Never point a button at one of the stand-ins (or ourselves).
-        val exclude = Targets.buttons.map { it.standInPackage }.toSet() + packageName
-
-        val seen = HashSet<String>()
-        val apps = listOf(Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER)
-            .flatMap { category ->
-                packageManager.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(category), 0)
+        lifecycleScope.launch {
+            InstallEvents.results.collect {
+                Toast.makeText(this@MainActivity, it.message, Toast.LENGTH_LONG).show()
+                refresh++
             }
-            .filter { it.activityInfo.packageName !in exclude && seen.add(it.activityInfo.packageName) }
-            .map { AppChoice("${it.loadLabel(packageManager)}  (${it.activityInfo.packageName})", it.activityInfo.packageName) }
-            .sortedBy { it.label.lowercase() }
-
-        val choices = listOf(AppChoice("(do nothing)", null)) + apps
-        list.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, choices)
-        list.setOnItemClickListener { _, _, position, _ ->
-            Targets.set(this, button.id, choices[position].pkg)
-            showButtons()
         }
-        list.requestFocus()
+
+        setContent {
+            HubTheme {
+                val items by produceState<List<ButtonItem>?>(null, refresh) {
+                    value = withContext(Dispatchers.IO) { loadItems(this@MainActivity) }
+                }
+                HubScreen(
+                    items = items,
+                    showInstallPermissionHelp = installPermissionHelp,
+                    onDismissInstallHelp = { installPermissionHelp = false },
+                    onOpenInstallSettings = ::openInstallSettings,
+                    onInstall = ::install,
+                    onUninstall = ::uninstall,
+                    onChoose = { button, pkg ->
+                        Targets.set(this, button.id, pkg)
+                        refresh++
+                    },
+                    onOpenLink = ::openLink,
+                )
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refresh++
+    }
+
+    private fun install(button: Targets.Button) {
+        if (!StandInInstaller.canInstall(this)) {
+            installPermissionHelp = true
+            return
+        }
+        try {
+            StandInInstaller.install(this, button)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Couldn't install the stand-in: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** Most TVs have no browser, so fall back to showing the address. */
+    private fun openLink(url: String) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(this, "This TV has no browser. Open $url on another device.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun openInstallSettings() {
+        val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
+        if (intent.resolveActivity(packageManager) != null) {
+            startActivity(intent)
+        } else {
+            Toast.makeText(
+                this, "Open Settings > Apps > Security & restrictions > Unknown sources, and allow TV Shortcuts.",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
+
+    /** Hands each package to the system's own uninstall confirmation, one after another. */
+    private fun uninstall(packages: List<String>) {
+        uninstallQueue.addAll(packages)
+        nextUninstall()
+    }
+
+    private fun nextUninstall() {
+        refresh++
+        val pkg = uninstallQueue.removeFirstOrNull() ?: return
+        deleteLauncher.launch(Intent(Intent.ACTION_DELETE, Uri.parse("package:$pkg")))
     }
 }

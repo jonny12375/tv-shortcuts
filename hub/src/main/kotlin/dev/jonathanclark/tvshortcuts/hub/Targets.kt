@@ -1,6 +1,7 @@
 package dev.jonathanclark.tvshortcuts.hub
 
 import android.content.Context
+import org.json.JSONArray
 
 /** The remote-control buttons we can remap, and where their choice is stored. */
 object Targets {
@@ -9,11 +10,18 @@ object Targets {
      */
     class Button(val id: String, val label: String, val standInPackage: String)
 
-    val buttons = listOf(
-        Button("disney", "Disney+ button", "com.disney.disneyplus"),
-        Button("crunchyroll", "Crunchyroll button", "com.crunchyroll.crunchyroid"),
-        Button("prime", "Prime Video button", "com.amazon.amazonvideo.livingroom"),
-    )
+    private var cached: List<Button>? = null
+
+    /** Loaded from the same config/buttons.json the stand-in flavors are generated from. */
+    @Synchronized
+    fun buttons(context: Context): List<Button> = cached ?: run {
+        val json = context.assets.open("buttons.json").bufferedReader().use { it.readText() }
+        val array = JSONArray(json)
+        List(array.length()) { i ->
+            val o = array.getJSONObject(i)
+            Button(o.getString("id"), o.getString("label"), o.getString("package"))
+        }.also { cached = it }
+    }
 
     private const val PREFS = "targets"
 

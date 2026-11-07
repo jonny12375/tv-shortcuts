@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity-alias
+            android:name="com.amazon.ignition.IgnitionActivity"
+            android:exported="true"
+            android:targetActivity="dev.jonathanclark.tvshortcuts.standin.LaunchActivity">
+            <intent-filter>
+                <action android:name="com.amazon.amazonvideo.livingroom.AMAZON_BUTTON" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity-alias>
+    </application>
+</manifest>

@@ -23,8 +23,8 @@ android {
     defaultConfig {
         minSdk = 26
         targetSdk = 34
-        versionCode = standinVersion
-        versionName = standinVersion.toString()
+        versionCode = rootProject.extra["appVersionCode"] as Int
+        versionName = rootProject.extra["appVersionName"] as String
         manifestPlaceholders["standinVersion"] = standinVersion
     }
 

@@ -22,8 +22,8 @@ android {
         applicationId = "dev.jonathanclark.tvshortcuts.hub"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = rootProject.extra["appVersionCode"] as Int
+        versionName = rootProject.extra["appVersionName"] as String
         buildConfigField("int", "STANDIN_VERSION", "$standinVersion")
     }
 

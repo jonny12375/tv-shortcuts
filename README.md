@@ -182,9 +182,16 @@ the same one.
 Without a `keystore.properties`, `assembleRelease` falls back to the debug key
 and prints a warning; those builds aren't real releases.
 
+### Versions
+
+The release version is `appVersion` in `gradle.properties`, as semver
+(`MAJOR.MINOR.PATCH`). The hub and every stand-in use it as their version name,
+and Android's version code is derived from it (`1.2.3` becomes `10203`), so that's
+the only place to bump. Tag releases as `v<appVersion>`, for example `v1.0.0`.
+
 ### Stand-in versions
 
-Every stand-in carries a version (`dev.jonathanclark.tvshortcuts.STANDIN_VERSION`
+Separately from the release version, every stand-in carries a compatibility version (`dev.jonathanclark.tvshortcuts.STANDIN_VERSION`
 in its manifest), and the hub knows which version it expects. If a change means
 the hub needs newer stand-ins, bump `standinVersion` in `gradle.properties`. The
 hub reads each installed stand-in's version, and the debug info screen shows
